@@ -3,3 +3,26 @@
 h3.results-count{
     color: cornflowerblue;
 }
+table{
+    border-collapse: collapse;
+}
+.results-table .table-header{
+    font-weight: 600;
+    color: darkgreen;
+    border-bottom: 1px solid black;
+}
+.table-header td{
+    padding: 0 16px 0 0;
+}
+table .row-item{
+    counter-increment: rowNumber;
+}
+
+table .row-item td:first-child::before{
+    content: counter(rowNumber)". ";
+    min-width: 1em;
+    margin-right: 0.5em;
+}
+.row-item td{
+    padding: 14px;
+}
