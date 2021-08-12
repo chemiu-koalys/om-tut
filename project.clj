@@ -11,7 +11,9 @@
                  [org.clojure/core.async "0.3.443"]
                  [cljs-http "0.1.43"]
                  [org.omcljs/om "1.0.0-beta1"]
-                 [org.clojure/core.async  "0.4.500"]]
+                 [org.clojure/core.async  "0.4.500"]
+                 [figwheel-sidecar "0.5.18"]]
+  :repl-options {:init-ns om-tut.core}
 
   :plugins [[lein-figwheel "0.5.20"]
             [lein-cljsbuild "1.1.7" :exclusions [[org.clojure/clojure]]]]
@@ -54,7 +56,7 @@
   :figwheel {;; :http-server-root "public" ;; default and assumes "resources"
              :server-port 3449 ;; default
              ;; :server-ip "127.0.0.1"
-
+             :open-file-command "open-in-intellij"
              :css-dirs ["resources/public/css"] ;; watch and update CSS
 
              ;; Start an nREPL server into the running figwheel process
