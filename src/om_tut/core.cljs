@@ -65,6 +65,7 @@
 
 ;; --- state ---
 
+
 (defonce app-state (atom {:letters nil :current-letter nil :words {}}))
 
 (defn get-chars []
