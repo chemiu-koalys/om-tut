@@ -1,134 +1,214 @@
 (ns om-tut.core
   (:require-macros [cljs.core.async.macros :refer [go go-loop]])
-  (:require [om.core :as om :include-macros true]
-            [om.dom :as dom :include-macros true]
+  (:require [om.core :as om
+             :include-macros true]
+            [om.dom :as dom
+             :include-macros true]
             [cljs.core.async :refer [<! chan timeout put!]]
             [cljs.core.async :refer [chan pub]]
-            [cljs-http.client :as http] 
+            [cljs-http.client :as http]
+            [cljs.pprint :as pp]
+            [om-tut.localstorage :as local]
+            [cljs.repl :as rep]
             [clojure.string :as string]))
+
 
 (enable-console-print!)
 
+(defn on-js-reload [])
+
+;; --- global utility ---
+
 (defmacro dbg [x]
   `(let [x# ~x]
-     (when (audyx.app.config-logic/get-in [:general :enable-debugging])
-       (print "dbg-key" '~x ":")
-       (console/log "%cdbg-value: %o" "color:hsl(208, 53%, 58%)" x#))
+     (print "dbg-key" '~x ":")
+     (console/log "%cdbg-value: %o" "color:hsl(208, 53%, 58%)" x#)
      x#))
 
-(def results-per-page 30)
 
 (defn console
-  "This is a wrapper function to call js console methods  
+  "This is a wrapper function to call js console methods
    https://developer.mozilla.org/en-US/docs/Web/API/Console"
   ([whatever]
    (js/console.log (console whatever "log")))
   ([whatever method]
    ((aget js/console method) (clj->js whatever))))
 
-(defn on-js-reload [])
+(defn index-of [x coll]
+  (let [idx? (fn [i a] (when (= x a) i))]
+    (first (keep-indexed idx? coll))))
 
-(defonce app-state (atom {:page 1 :table-data nil}))
 
-(defn reset-state! [owner]
-  (om/set-state! owner {:search-term "" :table-data nil}))
+; --- local storage ---
+(defonce letters-key "letters")
+(defonce words-key "words")
+(defn get-local-words [] (local/get-item words-key))
+(defn get-local-letter-words [letter]
+  (get-in (get-local-words) [(keyword letter)]))
+(defn set-local-letter-words [letter words]
+  (js/console.log "got here")
+  (let [local-words (get-local-words)]
+    (if local-words
+      (do
+        (as-> local-words $
+          (assoc $ (keyword letter) words)
+          (local/set-item! words-key $))
+        #_(->>
+           local-words
+           (merge {(keyword letter) words})
+           (local/set-item! words-key)))
+      (do
+        (println "got here 2")
+        (local/set-item! words-key {(keyword letter) words})))))
 
-(defn count-pages [total-count] (Math/ceil (/ total-count results-per-page)))
 
-(defn fetch-results [owner search-term page]
-  (let [url "https://api.github.com/search/code"
-        auth-header {"Authorization" "Basic Y2hlbWl1LWtvYWx5czpnaHBfNmVRWjF6dnBEVmdVTk1BbVJoNk80d2htbFhEZUYzMk9vakx2"}
-        q (str search-term " extension:cljs")
-        page (if (> page 1) page 1)
-        options {:with-credentials? false
-                 :headers auth-header
-                 :query-params {:q q :page page}}
-        ]
-    (go (let [response (<! (http/get url options))]
-        (let [data (:body response)]
-          (om/set-state! owner {:table-data (conj data {:pages (count-pages (:total_count data))})}))
-        (console "state changed")
-        (console (om/get-state owner))))))
 
-(defn handle-search-state! [owner val]
-  (reset-state! owner)
-  (om/set-state! owner {:search-term val}))
+;; --- state ---
 
-;; how can this be stateless and how can I incorporate the state method inside the component
-(defn search-component "Search component" [data owner]
+(defonce app-state (atom {:letters nil :current-letter nil :words {}}))
+
+(defn get-chars []
+  (to-array "ABCDEFGHIJKLMNOPQRSTUVWXYZ"))
+
+(defn init-char-state []
+  (into (sorted-map) (for [char (get-chars)
+                           opts [{:title char :selected false}]
+                           key [(keyword (clojure.string/lower-case char))]]
+                       {key opts})))
+
+(do
+  (def letters (if
+                (not= (local/get-item letters-key) "null")
+                 (local/get-item ["letters"])
+                 (init-char-state)))
+  ;TODO use letters, there is a bug here works only after refresh
+  ; (swap! app-state assoc :letters letters)
+  (swap! app-state assoc :letters (init-char-state))
+  (local/set-item! letters-key letters))
+
+;; --- Watch the state ---
+
+(add-watch app-state :app-state
+           (fn [key _atom old-state new-state]
+             (if false
+               (if (not= old-state new-state) (do
+                                                ;(println "---" key "atom changed ---")
+                                                ;(println "---" key "old state ---")
+                                                ;(pp/pprint old-state)
+                                                ;(println "---" key "new state ---")
+                                                (pp/pprint (:words new-state)))))))
+;; --- utility ---
+
+(defn add-order [coll]
+  (vec (map #(assoc %1 :order %2) coll (iterate inc 0))))
+
+(def word-api-url "https://api.datamuse.com/words")
+
+(defn get-words! [letter data]
+  ;check if local storage has words for this letter else get from api
+  (let [letter-words (get-local-letter-words letter)]
+    (if letter-words
+      (om/update! data :words letter-words)
+      (let [url (str word-api-url)
+            options {:with-credentials? false
+                     :query-params      {:sp (str (name letter) "*") :max 100}}]
+        (go
+          (let [words (mapv :word (:body (<! (http/get url options))))]
+            (om/update! data :words words)))))))
+
+;; --- render ---
+
+
+(defn select-letter! [letter current-letter data]
+  (if current-letter
+    (if (not= (name letter) current-letter)
+      (do
+        (om/update! data [:letters (keyword current-letter) :selected] false))))
+  (om/update! data [:current-letter] (name letter))
+  (om/update! data [:letters letter :selected] true))
+
+(defn letter-component [data owner]
   (reify
-    om/IInitState
-    (init-state [_]
-      {:search-term ""})
     om/IRenderState
-    (render-state [_ {:keys [search-term]}]
-      (dom/div nil 
-               (dom/label #js {:className "label1" 
-                               :htmlFor (:field-name data)}
-                          (:field-label data))
-      (dom/input #js {:className (:class data) 
-                               :id (:field-name data) 
-                               :onChange  #(handle-search-state! owner (-> % .-target .-value))})
-      (dom/button #js {:onClick  
-                       (fn [] (put! (:search-channel data) search-term))} 
-                   "Execute search!")))))
+    (render-state [this {:keys [set-letter-chan]}]
+      (let [key (first data)
+            properties (second data)
+            title (properties :title)
+            selected (properties :selected)]
+        (dom/button #js {:onClick   (fn [e] (put! set-letter-chan key))
+                         :className (str "letter_item " (if selected "selected"))} title)))))
 
-(defn search-results-component "This component renders the search results" [data owner]
+(defn move-word! [word func word-cursor]
+  (let [order (index-of word word-cursor)
+        current (get word-cursor order)
+        sub-with (get word-cursor (func order))]
+    (om/update! word-cursor (assoc word-cursor (func order) current order sub-with))))
+
+(defn move-button [data]
   (reify
-    om/IInitState
-    (init-state [_]
-      {:page 1 
-       :table-data [] 
-       :result-channel (chan)})
-    om/IWillMount
-    (will-mount [_]
-      (fetch-results owner (:search-term data) (om/get-state owner :page))
-      (console data "table"))
     om/IRenderState
-    (render-state [_ {:keys [table-data]}]
-      (dom/div nil
-               (dom/h2 #js {:className "results-header"} 
-                       (str "Search results for " (:search-term data)))
-               (if (empty? table-data)
-                 (dom/div #js {:className "loading-message"} (str "Loading ..."))
-                 (dom/div nil
-                          (dom/h3 #js {:className "results-count"} 
-                                  (str "Results Count " (:total_count table-data)))))))))
-                          ;; (map (dom/div #js {:className "row-item"} (str "Results Count " (:name %)))(:items table-data))
-                          
+    (render-state [_ _]
+      (let [{:keys [word-chan direction disable word]} data
+            up (if (= direction "up") true false)
+            icon (dom/img #js {:className "up-image"
+                               :src       "/images/up.svg"})
+            func (if up dec inc)]
+        (if disable (dom/button #js {:onClick   (fn [e] (put! word-chan [word func]))
+                                     :className (str "move_word push" direction)
+                                     :disabled  true} icon)
+            (dom/button #js {:onClick   (fn [e] (put! word-chan [word func]))
+                             :className (str "move_word push" direction)} icon))))))
 
+
+(defn word-component [data]
+  (reify
+    om/IRenderState
+    (render-state [this {:keys [word-chan]}]
+      (let [word-cursor (om/ref-cursor (:words (om/root-cursor app-state)))
+            first (< (index-of data word-cursor) 1)
+            last (= (index-of data word-cursor) (dec (count word-cursor)))]
+        (dom/div #js {:className "word_wrapper"}
+                 (om/build move-button {:word-chan word-chan :direction "down" :disable last :word data})
+                 (dom/div #js {:className (str "word_item ")} data)
+                 (om/build move-button {:word-chan word-chan :direction "up" :disable first :word data}))))))
 
 (defn widget "main app component" [data owner]
   (reify
     om/ICheckState
     om/IInitState
     (init-state [_]
-      {:count 0 :search-channel (chan) :search-term ""})
+      {:set-letter-chan (chan) :word-chan (chan) :current-letter nil :words {}})
+    om/IWillUpdate
+    (will-update [this next-props next-state]
+      (let [letter (:current-letter next-props) words (:words next-props)]
+        (if (= (get (first words) 0) letter)
+          (set-local-letter-words letter words))))
+
     om/IWillMount
     (will-mount [_]
-      (let [search-term (om/get-state owner :search-channel)]
-        (go-loop []
-          (let [term (<! search-term)]
-            (console (str "from chan " term))
-            (om/set-state! owner :search-term term)
-            ;; (fetch-results owner term (om/get-state owner :page))
-            (recur)))))
-    om/IWillUnmount
-    (will-unmount [_]
-      (println "Hello widget unmounting"))
+      (let [set-letter (om/get-state owner :set-letter-chan)]
+        (go (loop []
+              (let [letter (<! set-letter) current-letter (get @app-state :current-letter)]
+                (select-letter! letter current-letter data)
+                (get-words! letter data))
+              (recur))))
+      (let [word-reorder (om/get-state owner :word-chan)]
+        (go (loop []
+              (let [word-util (<! word-reorder) word-cursor (om/ref-cursor (:words (om/root-cursor app-state)))]
+                (move-word! (first word-util) (second word-util) word-cursor))
+              (recur)))))
     om/IRenderState
-    (render-state [_ {:keys [count search-channel search-term]}]
-
-      (console "Render")
-      (dom/div nil
-               (dom/h2 nil "Search github for cljs exetnsions")
-               (om/build search-component {
-                                           :field-name "searchTerm" 
-                                           :field-label "Search Term" 
-                                           :class "input1" 
-                                           :search-channel search-channel})
-               (when-not (= search-term "") (om/build search-results-component  {:search-term search-term}))))))
-
+    (render-state [this {:keys [set-letter-chan word-chan]}]
+      (let [{:keys [letters words]} data]
+        (dom/div nil
+                 (dom/div #js {:className "letter-section"}
+                          (dom/h2 nil "letters")
+                          (om/build-all letter-component letters
+                                        {:init-state {:set-letter-chan set-letter-chan}}))
+                 (dom/div #js {:className "word-section"} (dom/h2 nil "words")
+                          (dom/div #js {:className "words-wrapper"}
+                                   (om/build-all word-component words
+                                                 {:init-state {:word-chan word-chan}}))))))))
 
 (om/root widget app-state
          {:target (.getElementById js/document "app")})

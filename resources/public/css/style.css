@@ -3,3 +3,92 @@
 h3.results-count{
     color: cornflowerblue;
 }
+table{
+    border-collapse: collapse;
+}
+.results-table .table-header{
+    font-weight: 600;
+    color: darkgreen;
+    border-bottom: 1px solid black;
+}
+.table-header td{
+    padding: 0 16px 0 0;
+}
+table .row-item{
+    counter-increment: rowNumber;
+}
+
+table .row-item td:first-child::before{
+    content: counter(rowNumber)". ";
+    min-width: 1em;
+    margin-right: 0.5em;
+}
+.row-item td{
+    padding: 14px;
+}
+button{
+    display: inline-block;
+    margin: 5px;
+    background-color: black;
+    border: none;
+    color: white;
+    padding: 12px 24px;
+    text-align: center;
+    text-decoration: none;
+    font-size: 12px;
+}
+.letter_item.selected {
+    background-color: green;
+}
+.word_wrapper{
+    display: flex;
+    justify-content: space-around;
+    margin:5px 30px;
+}
+.word_wrapper:nth-of-type(6n+1) {margin-left: 0;}
+.word_item {
+    min-width: 100px;
+    display: inline-block;
+    margin: 5px;
+    background-color: black;
+    border: none;
+    color: white;
+    padding: 12px 24px;
+    text-align: center;
+    text-decoration: none;
+    font-size: 12px;
+}
+.move_word{
+    padding: 0;
+}
+button.move_word.pushdown {
+    -webkit-transform: rotate(180deg);
+       -moz-transform: rotate(180deg);
+        -ms-transform: rotate(180deg);
+         -o-transform: rotate(180deg);
+            transform: rotate(180deg);
+}
+button.move_word[disabled] {
+    opacity: 0.3;
+}
+.word-section {
+    height: calc(100vh - 115px);
+    padding-top: 115px;
+}
+.letter-section {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 115px;
+    padding: 8px;
+    background-color: #FFF;
+    z-index: 1;
+}
+.words-wrapper {
+    display: flex;
+    align-items: center;
+    /* justify-content: center; */
+    flex-wrap: wrap;
+    height: 100%;
+}
